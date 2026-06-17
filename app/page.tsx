@@ -1,65 +1,571 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+  useSession,
+  signIn,
+  signOut,
+} from "next-auth/react";
+type Message = {
+  text: string;
+  sender: "user" | "ai";
+  timestamp: string;
+};
+
+type Chat = {
+  id: number;
+  title: string;
+  messages: Message[];
+};
 
 export default function Home() {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [currentChatId, setCurrentChatId] = useState(1);
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const { data: session } = useSession();
+  console.log(session?.user);
+
+  useEffect(() => {
+  const savedChats = localStorage.getItem("chats");
+
+  if (savedChats) {
+    const parsed = JSON.parse(savedChats);
+
+    setChats(parsed);
+
+    if (parsed.length > 0) {
+      setCurrentChatId(parsed[0].id);
+    }
+  } else {
+    setChats([
+      {
+        id: 1,
+        title: "Chat 1",
+        messages: [],
+      },
+    ]);
+  }
+}, []);
+
+  // Save chats
+  useEffect(() => {
+    if (chats.length > 0) {
+      localStorage.setItem(
+        "chats",
+        JSON.stringify(chats)
+      );
+    }
+  }, [chats]);
+
+
+  const currentChat =
+    chats.find((chat) => chat.id === currentChatId);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [chats]);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  if (chats.length === 0) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        Loading...
+      </div>
+    );
+  }
+  if (!currentChat) {
+    return null;
+  }
+
+  const updateCurrentChatMessages = (
+    updater: (messages: Message[]) => Message[]
+  ) => {
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat.id === currentChatId
+          ? {
+              ...chat,
+              messages: updater(chat.messages),
+            }
+          : chat
+      )
+    );
+  };
+
+  const createNewChat = () => {
+    const newId = Date.now();
+
+    const newChat: Chat = {
+      id: newId,
+      title: `Chat ${chats.length + 1}`,
+      messages: [],
+    };
+
+    setChats((prev) => [...prev, newChat]);
+    setCurrentChatId(newId);
+    setSidebarOpen(false);
+
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 0);
+  };
+  const deleteChat = (id: number) => {
+    if (chats.length === 1) return;
+
+    const updatedChats = chats.filter(
+      (chat) => chat.id !== id
+    );
+
+    setChats(updatedChats);
+
+    if (currentChatId === id) {
+      setCurrentChatId(updatedChats[0].id);
+    }
+  };
+  const handleSend = async () => {
+    if (message.trim() === "") return;
+
+    const userMessage: Message = {
+      text: message,
+      sender: "user",
+      timestamp: new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    };
+
+    updateCurrentChatMessages((prev) => [
+      ...prev,
+      userMessage,
+    ]);
+
+    const currentMessage = message;
+    setMessage("");
+    setChats((prev) =>
+      prev.map((chat) => {
+        if (
+          chat.id === currentChatId &&
+          (chat.title.startsWith("Chat ") ||
+            chat.title === "New Chat")
+        ) {
+          return {
+            ...chat,
+            title:
+              currentMessage.length > 20
+                ? currentMessage.slice(0, 20) + "..."
+                : currentMessage,
+          };
+        }
+
+        return chat;
+      })
+    );
+    try {
+      setLoading(true);
+
+      const response = await fetch(
+        "http://127.0.0.1:8000/chat",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: currentMessage,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      const aiMessage: Message = {
+        text: data.success
+          ? data.message.content
+          : data.error?.message ||
+            "Something went wrong.",
+        sender: "ai",
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+
+      updateCurrentChatMessages((prev) => [
+        ...prev,
+        aiMessage,
+      ]);
+    } catch (error) {
+      console.error(error);
+
+      updateCurrentChatMessages((prev) => [
+        ...prev,
+        {
+          text: "⚠️ Failed to connect to server.",
+          sender: "ai",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const regenerateResponse = async (
+    aiMessageIndex: number
+  ) => {
+    const userMessage =
+      currentChat.messages[aiMessageIndex - 1];
+
+    if (!userMessage) return;
+
+    try {
+      setLoading(true);
+
+      const response = await fetch(
+        "http://127.0.0.1:8000/chat",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: userMessage.text,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      const newAiText = data.success
+        ? data.message.content
+        : "Something went wrong.";
+
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (chat.id !== currentChatId)
+            return chat;
+
+          const updatedMessages = [
+            ...chat.messages,
+          ];
+
+          updatedMessages[aiMessageIndex] = {
+            text: newAiText,
+            sender: "ai",
+            timestamp: new Date().toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          };
+
+          return {
+            ...chat,
+            messages: updatedMessages,
+          };
+        })
+      );
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="min-h-screen flex bg-black text-white">
+      {/* Sidebar */}
+      <div
+        className={`
+          fixed md:static
+          top-0 left-0
+          h-full
+          ${sidebarCollapsed ? "w-16" : "w-64"}
+          bg-zinc-900
+          border-r border-zinc-800
+          p-4
+          z-50
+          transition-transform
+          ${
+            sidebarOpen
+              ? "translate-x-0"
+              : "-translate-x-full md:translate-x-0"
+          }
+        `}
+      >
+        <div className="flex justify-between items-center mb-4">
+          {!sidebarCollapsed && (
+            <h2 className="font-bold">
+              Chats
+            </h2>
+          )}
+
+          <button
+            onClick={() =>
+              setSidebarCollapsed(
+                !sidebarCollapsed
+              )
+            }
+            className="text-xl"
+          >
+            ☰
+          </button>
+        </div>
+
+        {!sidebarCollapsed && (
+          <button
+            onClick={createNewChat}
+            className="w-full bg-blue-500 hover:bg-blue-600 p-3 rounded-lg mb-4 font-semibold"
+          >
+            + New Chat
+          </button>
+        )}
+
+        {!sidebarCollapsed && (
+          <div className="space-y-2">
+          {chats.map((chat) => (
+            <div
+              key={chat.id}
+              onClick={() => {
+                setCurrentChatId(chat.id);
+                setSidebarOpen(false);
+
+                setTimeout(() => {
+                  textareaRef.current?.focus();
+                }, 0);
+              }}
+              className={`p-3 rounded-lg cursor-pointer transition ${
+                currentChatId === chat.id
+                  ? "bg-zinc-700"
+                  : "bg-zinc-800 hover:bg-zinc-700"
+              }`}
+            >
+              <div className="flex justify-between items-center">
+                <span>{chat.title}</span>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteChat(chat.id);
+                  }}
+                  className="text-red-400 hover:text-red-300"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        )}
+      </div>
+        
+
+      {/* Chat Area */}
+      <div className="flex-1 flex flex-col items-center p-8">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="md:hidden absolute top-4 left-4 text-2xl"
+        >
+          ☰
+        </button>
+
+        <div className="w-full max-w-4xl flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold">
+            AI Chat App
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+
+          {session ? (
+            <div className="flex items-center gap-3">
+              
+              {session.user?.image ? (
+                <img
+                  src={session?.user?.image ?? undefined}
+                  alt="Profile"
+                  style={{
+                    width: "40px",
+                    height: "40px",
+                    borderRadius: "50%",
+                  }}
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-bold">
+                  {session.user?.name?.charAt(0).toUpperCase() ?? "U"}
+                </div>
+              )}
+
+              <span className="text-sm">
+                {session.user?.name}
+              </span>
+
+              <button
+                onClick={() => signOut()}
+                className="bg-red-500 hover:bg-red-600 px-3 py-2 rounded-lg"
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => signIn("google")}
+              className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded-lg"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              Login
+            </button>
+          )}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+        <div className="w-full max-w-4xl border border-zinc-800 rounded-xl p-4 h-[550px] overflow-y-auto bg-zinc-950 mb-4">
+          {currentChat.messages.length === 0 && (
+            <div className="text-center text-zinc-500 mt-10">
+              Start a conversation...
+            </div>
+          )}
+
+          {currentChat.messages.map(
+            (msg, index) => (
+              <div
+                key={index}
+                className={`p-3 rounded-lg mb-3 w-fit max-w-[80%] ${
+                  msg.sender === "user"
+                    ? "bg-blue-500 text-white ml-auto"
+                    : "bg-zinc-800 text-white"
+                }`}
+              >
+                <strong>
+                  {msg.sender === "user"
+                    ? "You"
+                    : "AI"}
+                  :
+                </strong>{" "}
+                <ReactMarkdown
+                  components={{
+                    code({ className, children, ...props }) {
+                      const match = /language-(\w+)/.exec(
+                        className || ""
+                      );
+
+                      return match ? (
+                        <SyntaxHighlighter
+                          style={oneDark}
+                          language={match[1]}
+                          PreTag="div"
+                        >
+                          {String(children).replace(/\n$/, "")}
+                        </SyntaxHighlighter>
+                      ) : (
+                        <code
+                          className="bg-zinc-700 px-1 py-0.5 rounded"
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {msg.text}
+                </ReactMarkdown>
+                <div
+                  className={`text-xs mt-2 ${
+                    msg.sender === "user"
+                      ? "text-blue-200"
+                      : "text-zinc-400"
+                  }`}
+                >
+                  {msg.timestamp}
+                </div>
+
+                {msg.sender === "ai" && (
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() =>
+                        navigator.clipboard.writeText(msg.text)
+                      }
+                      className="text-xs bg-zinc-700 px-2 py-1 rounded"
+                    >
+                      📋 Copy
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        regenerateResponse(index)
+                      }
+                      className="text-xs bg-zinc-700 px-2 py-1 rounded"
+                    >
+                      🔄 Regenerate
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          )}
+
+          {loading && (
+            <div className="flex gap-1 p-3">
+              <div className="w-2 h-2 bg-white rounded-full animate-bounce"></div>
+              <div
+                className="w-2 h-2 bg-white rounded-full animate-bounce"
+                style={{ animationDelay: "0.1s" }}
+              />
+              <div
+                className="w-2 h-2 bg-white rounded-full animate-bounce"
+                style={{ animationDelay: "0.2s" }}
+              />
+            </div>
+          )}
+          <div ref={bottomRef} />
+          </div>
+
+        <div className="flex gap-2 w-full max-w-4xl">
+          <textarea
+            ref={textareaRef}
+            placeholder="Type your message..."
+            value={message}
+            onChange={(e) => {
+              setMessage(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height =
+                e.target.scrollHeight + "px";
+            }}
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey
+              ) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            rows={1}
+            className="flex-1 border border-zinc-700 bg-zinc-900 p-3 rounded-lg resize-none max-h-60 overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+
+          <button
+            onClick={handleSend}
+            disabled={loading}
+            className="bg-blue-500 hover:bg-blue-600 px-6 rounded-lg font-semibold disabled:opacity-50"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            Send
+          </button>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
