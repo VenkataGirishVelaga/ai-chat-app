@@ -108,8 +108,10 @@ export default function Home() {
       )
     );
   };
+  
+  const createNewChat = async () => {
+    if (!session?.user?.id) return;
 
-  const createNewChat = () => {
     const newId = Date.now();
 
     const newChat: Chat = {
@@ -121,6 +123,17 @@ export default function Home() {
     setChats((prev) => [...prev, newChat]);
     setCurrentChatId(newId);
     setSidebarOpen(false);
+
+    await fetch("/api/chats/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: newChat.title,
+        userId: session.user.id,
+      }),
+    });
 
     setTimeout(() => {
       textareaRef.current?.focus();
@@ -155,7 +168,18 @@ export default function Home() {
       ...prev,
       userMessage,
     ]);
-
+    await fetch("/api/messages/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: userMessage.text,
+        sender: userMessage.sender,
+        timestamp: userMessage.timestamp,
+        chatId: "cmqi3ty320001i8isl53b86pc", // temporary
+      }),
+    });
     const currentMessage = message;
     setMessage("");
     setChats((prev) =>
@@ -211,6 +235,18 @@ export default function Home() {
         ...prev,
         aiMessage,
       ]);
+      await fetch("/api/messages/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: aiMessage.text,
+          sender: aiMessage.sender,
+          timestamp: aiMessage.timestamp,
+          chatId: "cmqi3ty320001i8isl53b86pc", // temporary
+        }),
+      });
     } catch (error) {
       console.error(error);
 
