@@ -20,7 +20,8 @@ model Chat {
   id        String   @id @default(cuid())
   title     String
 
-
+  pinned    Boolean  @default(false)
+  
   createdAt DateTime @default(now())
 
   userId    String

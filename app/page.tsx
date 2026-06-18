@@ -23,6 +23,7 @@ type DbChat = {
   id: string;
   title: string;
   userId: string;
+  pinned: boolean;
   messages: DbMessage[];
 };
 
@@ -37,6 +38,7 @@ type Chat = {
   id: number;
   dbId?: string;
   title: string;
+  pinned?: boolean;
   messages: Message[];
 };
 
@@ -57,7 +59,46 @@ export default function Home() {
   const { data: session, status} = useSession();
 
   console.log(session?.user);
+  const togglePinChat = async (
+    chatId: number
+  ) => {
+    const chat = chats.find(
+      (c) => c.id === chatId
+    );
 
+    if (!chat) return;
+
+    const newPinned =
+      !chat.pinned;
+
+    setChats((prev) =>
+      prev.map((c) =>
+        c.id === chatId
+          ? {
+              ...c,
+              pinned: newPinned,
+            }
+          : c
+      )
+    );
+
+    if (chat.dbId) {
+      await fetch(
+        "/api/chats/toggle-pin",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            chatId: chat.dbId,
+            pinned: newPinned,
+          }),
+        }
+      );
+    }
+  };
   console.log("SESSION:", session);
 useEffect(() => {
   const loadChats = async () => {
@@ -105,6 +146,7 @@ useEffect(() => {
         id: index + 1,
         dbId: chat.id,
         title: chat.title,
+        pinned: chat.pinned,
         messages: chat.messages.map(
           (msg: DbMessage) => ({
             id: msg.id,
@@ -194,6 +236,7 @@ useEffect(() => {
     id: Date.now(),
     dbId: dbChat.id,
     title: dbChat.title,
+    pinned: dbChat.pinned,
     messages: [],
   };
 
@@ -611,7 +654,17 @@ useEffect(() => {
 
         {!sidebarCollapsed && (
           <div className="space-y-2">
-          {chats.map((chat) => (
+          {[...chats]
+            .sort((a, b) => {
+              if (a.pinned && !b.pinned)
+                return -1;
+
+              if (!a.pinned && b.pinned)
+                return 1;
+
+              return 0;
+            })
+            .map((chat) => (
             <div
               key={chat.id}
               onClick={() => {
@@ -628,6 +681,14 @@ useEffect(() => {
                   : "bg-zinc-800 hover:bg-zinc-700"
               }`}
             >
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePinChat(chat.id);
+                }}
+              >
+                {chat.pinned ? "📌" : "📍"}
+              </button>
               <div className="flex justify-between items-center">
                 <span>{chat.title}</span>
 
