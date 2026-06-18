@@ -421,7 +421,7 @@ useEffect(() => {
       ]);
 
       const response = await fetch(
-        "http://127.0.0.1:8000/chat-stream",
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/chat-stream`,
         {
           method: "POST",
           headers: {
@@ -532,7 +532,7 @@ useEffect(() => {
       setLoading(true);
 
       const response = await fetch(
-        "http://127.0.0.1:8000/chat",
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/chat`,
         {
           method: "POST",
           headers: {
@@ -739,7 +739,7 @@ const saveEditedMessage = async (
       )
     );
 
-    const response = await fetch("http://127.0.0.1:8000/chat-stream", {
+    const response = await fetch("process.env.NEXT_PUBLIC_BACKEND_URL/chat-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
