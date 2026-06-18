@@ -21,7 +21,7 @@ model Chat {
   title     String
 
   pinned    Boolean  @default(false)
-  
+
   createdAt DateTime @default(now())
 
   userId    String
@@ -32,11 +32,10 @@ model Chat {
 
 model Message {
   id        String   @id @default(cuid())
-
   text      String
   sender    String
   timestamp String
-
   chatId    String
-  chat      Chat @relation(fields: [chatId], references: [id])
+  chat      Chat     @relation(fields: [chatId], references: [id])
+  createdAt DateTime @default(now())   
 }
