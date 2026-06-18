@@ -197,8 +197,24 @@ useEffect(() => {
   setCurrentChatId(newChat.id);
   setSidebarOpen(false);
 };
-  const deleteChat = (id: number) => {
+  const deleteChat = async (id: number) => {
     if (chats.length === 1) return;
+
+    const chat = chats.find(
+      (chat) => chat.id === id
+    );
+
+    if (!chat?.dbId) return;
+
+    await fetch("/api/chats/delete", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        chatId: chat.dbId,
+      }),
+    });
 
     const updatedChats = chats.filter(
       (chat) => chat.id !== id
@@ -209,6 +225,27 @@ useEffect(() => {
     if (currentChatId === id) {
       setCurrentChatId(updatedChats[0].id);
     }
+  };
+  const buildConversationMessages = (
+    messages: Message[],
+    currentMessage?: string
+  ) => {
+    const conversation = messages.map((msg) => ({
+      role:
+        msg.sender === "user"
+          ? "user"
+          : "assistant",
+      content: msg.text,
+    }));
+
+    if (currentMessage) {
+      conversation.push({
+        role: "user",
+        content: currentMessage,
+      });
+    }
+
+    return conversation;
   };
   const handleSend = async () => {
     if (message.trim() === "") return;
@@ -240,6 +277,12 @@ useEffect(() => {
     });
     const currentMessage = message;
     setMessage("");
+
+    const newTitle =
+      currentMessage.length > 20
+        ? currentMessage.slice(0, 20) + "..."
+        : currentMessage;
+    
     setChats((prev) =>
       prev.map((chat) => {
         if (
@@ -259,6 +302,22 @@ useEffect(() => {
         return chat;
       })
     );
+    if (
+      currentChat?.dbId &&
+      (currentChat.title.startsWith("Chat ") ||
+        currentChat.title === "New Chat")
+    ) {
+      await fetch("/api/chats/update-title", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          chatId: currentChat.dbId,
+          title: newTitle,
+        }),
+      });
+    }
     try {
       setLoading(true);
 
@@ -270,7 +329,10 @@ useEffect(() => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            message: currentMessage,
+            messages: buildConversationMessages(
+              currentChat.messages,
+              currentMessage
+            ),
           }),
         }
       );
@@ -342,7 +404,12 @@ useEffect(() => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            message: userMessage.text,
+            messages: buildConversationMessages(
+              currentChat.messages.slice(
+                0,
+                aiMessageIndex
+              )
+            ),
           }),
         }
       );
