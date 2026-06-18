@@ -27,6 +27,7 @@ type DbChat = {
 };
 
 type Message = {
+  id?: string;
   text: string;
   sender: "user" | "ai";
   timestamp: string;
@@ -67,7 +68,9 @@ useEffect(() => {
     );
 
     const dbChats = await res.json();
-
+    dbChats[0]?.messages.forEach((msg: any) =>
+      console.log(msg.id, msg.sender, msg.text)
+    );
     if (dbChats.length === 0) {
       const createRes = await fetch(
         "/api/chats/create",
@@ -104,6 +107,7 @@ useEffect(() => {
         title: chat.title,
         messages: chat.messages.map(
           (msg: DbMessage) => ({
+            id: msg.id,
             text: msg.text,
             sender: msg.sender,
             timestamp: msg.timestamp,
@@ -185,7 +189,7 @@ useEffect(() => {
   );
 
   const dbChat = await response.json();
-
+  
   const newChat: Chat = {
     id: Date.now(),
     dbId: dbChat.id,
@@ -404,7 +408,7 @@ useEffect(() => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: fullText + "▌",
+          text: fullText,
           sender: "ai",
           timestamp: aiTimestamp,
           chatId: currentChat?.dbId,
@@ -464,6 +468,64 @@ useEffect(() => {
         ? data.message.content
         : "Something went wrong.";
 
+      const activeChat = chats.find(
+        (chat) => chat.id === currentChatId
+      );
+
+      const aiMessage=activeChat?.messages[aiMessageIndex];
+      console.log(
+        "AI MESSAGE:",
+        currentChat.messages[aiMessageIndex]
+      );
+      console.log(
+        "MESSAGE ID:",
+        currentChat.messages[aiMessageIndex]?.id
+      );
+      if (aiMessage?.id) {
+        await fetch(
+          "/api/messages/update",
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              messageId: aiMessage.id,
+              text: newAiText,
+            }),
+          }
+        );
+        // Refetch all chats to sync all tabs with latest DB state
+        if (session?.user?.id) {
+          try {
+            const res = await fetch(
+              `/api/chats/user?userId=${session.user.id}`
+            );
+            const dbChats = await res.json();
+
+            const convertedChats = dbChats.map(
+              (chat: DbChat, index: number) => ({
+                id: index + 1,
+                dbId: chat.id,
+                title: chat.title,
+                messages: chat.messages.map(
+                  (msg: DbMessage) => ({
+                    id: msg.id,
+                    text: msg.text,
+                    sender: msg.sender,
+                    timestamp: msg.timestamp,
+                  })
+                ),
+              })
+            );
+
+            setChats(convertedChats);
+          } catch (error) {
+            console.error("Failed to sync chats:", error);
+          }
+        }
+      }
       setChats((prev) =>
         prev.map((chat) => {
           if (chat.id !== currentChatId)
@@ -474,6 +536,7 @@ useEffect(() => {
           ];
 
           updatedMessages[aiMessageIndex] = {
+            ...updatedMessages[aiMessageIndex],
             text: newAiText,
             sender: "ai",
             timestamp: new Date().toLocaleTimeString([], {
@@ -488,6 +551,8 @@ useEffect(() => {
           };
         })
       );
+
+
     } catch (error) {
       console.error(error);
     } finally {
