@@ -4,11 +4,28 @@ import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import LoginScreen from "@/components/LoginScreen";
 import {
   useSession,
   signIn,
   signOut,
 } from "next-auth/react";
+
+type DbMessage = {
+  id: string;
+  text: string;
+  sender: "user" | "ai";
+  timestamp: string;
+  chatId: string;
+};
+
+type DbChat = {
+  id: string;
+  title: string;
+  userId: string;
+  messages: DbMessage[];
+};
+
 type Message = {
   text: string;
   sender: "user" | "ai";
@@ -17,11 +34,13 @@ type Message = {
 
 type Chat = {
   id: number;
+  dbId?: string;
   title: string;
   messages: Message[];
 };
 
 export default function Home() {
+  
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -34,41 +53,71 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const { data: session } = useSession();
+  const { data: session, status} = useSession();
+
   console.log(session?.user);
 
-  useEffect(() => {
-  const savedChats = localStorage.getItem("chats");
+  console.log("SESSION:", session);
+useEffect(() => {
+  const loadChats = async () => {
+    if (!session?.user?.id) return;
 
-  if (savedChats) {
-    const parsed = JSON.parse(savedChats);
+    const res = await fetch(
+      `/api/chats/user?userId=${session.user.id}`
+    );
 
-    setChats(parsed);
+    const dbChats = await res.json();
 
-    if (parsed.length > 0) {
-      setCurrentChatId(parsed[0].id);
-    }
-  } else {
-    setChats([
-      {
-        id: 1,
-        title: "Chat 1",
-        messages: [],
-      },
-    ]);
-  }
-}, []);
-
-  // Save chats
-  useEffect(() => {
-    if (chats.length > 0) {
-      localStorage.setItem(
-        "chats",
-        JSON.stringify(chats)
+    if (dbChats.length === 0) {
+      const createRes = await fetch(
+        "/api/chats/create",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            title: "New Chat",
+            userId: session.user.id,
+          }),
+        }
       );
-    }
-  }, [chats]);
 
+      const dbChat = await createRes.json();
+
+      const firstChat = {
+        id: 1,
+        dbId: dbChat.id,
+        title: dbChat.title,
+        messages: [],
+      };
+
+      setChats([firstChat]);
+      setCurrentChatId(1);
+      return;
+    }
+
+    const convertedChats = dbChats.map(
+      (chat: DbChat, index: number) => ({
+        id: index + 1,
+        dbId: chat.id,
+        title: chat.title,
+        messages: chat.messages.map(
+          (msg: DbMessage) => ({
+            text: msg.text,
+            sender: msg.sender,
+            timestamp: msg.timestamp,
+          })
+        ),
+      })
+    );
+
+    setChats(convertedChats);
+    setCurrentChatId(convertedChats[0].id);
+  };
+
+  loadChats();
+}, [session]);
 
   const currentChat =
     chats.find((chat) => chat.id === currentChatId);
@@ -83,15 +132,24 @@ export default function Home() {
     textareaRef.current?.focus();
   }, []);
 
-  if (chats.length === 0) {
+  if (status === "loading") {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
         Loading...
       </div>
     );
   }
+
+  if (!session) {
+    return <LoginScreen />;
+  }
+
   if (!currentChat) {
-    return null;
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        Loading chats...
+      </div>
+    );
   }
 
   const updateCurrentChatMessages = (
@@ -109,36 +167,36 @@ export default function Home() {
     );
   };
   
-  const createNewChat = async () => {
-    if (!session?.user?.id) return;
+ const createNewChat = async () => {
+  if (!session?.user?.id) return;
 
-    const newId = Date.now();
-
-    const newChat: Chat = {
-      id: newId,
-      title: `Chat ${chats.length + 1}`,
-      messages: [],
-    };
-
-    setChats((prev) => [...prev, newChat]);
-    setCurrentChatId(newId);
-    setSidebarOpen(false);
-
-    await fetch("/api/chats/create", {
+  const response = await fetch(
+    "/api/chats/create",
+    {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        title: newChat.title,
+        title: `Chat ${chats.length + 1}`,
         userId: session.user.id,
       }),
-    });
+    }
+  );
 
-    setTimeout(() => {
-      textareaRef.current?.focus();
-    }, 0);
+  const dbChat = await response.json();
+
+  const newChat: Chat = {
+    id: Date.now(),
+    dbId: dbChat.id,
+    title: dbChat.title,
+    messages: [],
   };
+
+  setChats((prev) => [...prev, newChat]);
+  setCurrentChatId(newChat.id);
+  setSidebarOpen(false);
+};
   const deleteChat = (id: number) => {
     if (chats.length === 1) return;
 
@@ -177,7 +235,7 @@ export default function Home() {
         text: userMessage.text,
         sender: userMessage.sender,
         timestamp: userMessage.timestamp,
-        chatId: "cmqi3ty320001i8isl53b86pc", // temporary
+        chatId: currentChat?.dbId 
       }),
     });
     const currentMessage = message;
@@ -244,7 +302,7 @@ export default function Home() {
           text: aiMessage.text,
           sender: aiMessage.sender,
           timestamp: aiMessage.timestamp,
-          chatId: "cmqi3ty320001i8isl53b86pc", // temporary
+          chatId: currentChat?.dbId 
         }),
       });
     } catch (error) {
@@ -326,6 +384,7 @@ export default function Home() {
     }
   };
   return (
+    
     <div className="min-h-screen flex bg-black text-white">
       {/* Sidebar */}
       <div
