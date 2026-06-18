@@ -321,8 +321,23 @@ useEffect(() => {
     try {
       setLoading(true);
 
+      const aiTimestamp = new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      // create empty AI message first
+      updateCurrentChatMessages((prev) => [
+        ...prev,
+        {
+          text: "",
+          sender: "ai",
+          timestamp: aiTimestamp,
+        },
+      ]);
+
       const response = await fetch(
-        "http://127.0.0.1:8000/chat",
+        "http://127.0.0.1:8000/chat-stream",
         {
           method: "POST",
           headers: {
@@ -337,36 +352,65 @@ useEffect(() => {
         }
       );
 
-      const data = await response.json();
+      if (!response.body) {
+        throw new Error("No response stream");
+      }
 
-      const aiMessage: Message = {
-        text: data.success
-          ? data.message.content
-          : data.error?.message ||
-            "Something went wrong.",
-        sender: "ai",
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      };
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-      updateCurrentChatMessages((prev) => [
-        ...prev,
-        aiMessage,
-      ]);
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+
+        const nextText = fullText + chunk;
+        fullText = nextText;
+
+        setChats((prev) =>
+          prev.map((chat) => {
+            if (chat.id !== currentChatId)
+              return chat;
+
+            const updatedMessages = [
+              ...chat.messages,
+            ];
+
+            updatedMessages[
+              updatedMessages.length - 1
+            ] = {
+              ...updatedMessages[
+                updatedMessages.length - 1
+              ],
+              text: nextText,
+            };
+
+            return {
+              ...chat,
+              messages: updatedMessages,
+            };
+          })
+        );
+      }
+
+      // save completed AI message
       await fetch("/api/messages/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: aiMessage.text,
-          sender: aiMessage.sender,
-          timestamp: aiMessage.timestamp,
-          chatId: currentChat?.dbId 
+          text: fullText + "▌",
+          sender: "ai",
+          timestamp: aiTimestamp,
+          chatId: currentChat?.dbId,
         }),
       });
+
     } catch (error) {
       console.error(error);
 
@@ -679,19 +723,6 @@ useEffect(() => {
             )
           )}
 
-          {loading && (
-            <div className="flex gap-1 p-3">
-              <div className="w-2 h-2 bg-white rounded-full animate-bounce"></div>
-              <div
-                className="w-2 h-2 bg-white rounded-full animate-bounce"
-                style={{ animationDelay: "0.1s" }}
-              />
-              <div
-                className="w-2 h-2 bg-white rounded-full animate-bounce"
-                style={{ animationDelay: "0.2s" }}
-              />
-            </div>
-          )}
           <div ref={bottomRef} />
           </div>
 
