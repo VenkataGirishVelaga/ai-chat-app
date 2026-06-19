@@ -18,7 +18,11 @@ export async function GET(req: NextRequest) {
         userId,
       },
       include: {
-        messages: true,
+        messages: {
+          orderBy: {
+            id: "asc",
+          },
+        },
       },
       orderBy: {
         createdAt: "desc",
