@@ -61,6 +61,34 @@ export default function Home() {
 
   const { data: session, status} = useSession();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+    // Add this state
+  const [attachedFile, setAttachedFile] = useState<string | null>(null);
+
+  // Add this function
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type === "application/pdf") {
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      let fullText = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        fullText += content.items.map((item: any) => item.str).join(" ") + "\n";
+      }
+
+      setAttachedFile(`[Resume/PDF Content]\n${fullText}`);
+    } else if (file.type === "text/plain") {
+      const text = await file.text();
+      setAttachedFile(`[File Content]\n${text}`);
+    }
+  };
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);
 
@@ -335,16 +363,22 @@ useEffect(() => {
     return conversation;
   };
   const handleSend = async () => {
+
+    const fullMessage = attachedFile 
+    ? `${attachedFile}\n\nUser question: ${message}` 
+    : message;
+
       // In handleSend, replace the entire top section up to setMessage(""):
 
     const userMessage: Message = {
-      text: message,
+      text: fullMessage,
       sender: "user",
       timestamp: new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
       }),
     };
+    setAttachedFile(null);
 
     // 1. Add message to state AND capture its index atomically
     let userMsgIndex = 0;
@@ -442,6 +476,12 @@ useEffect(() => {
         },
       ]);
 
+      const messages = buildConversationMessages(
+        currentChat.messages,
+        currentMessage
+      );
+
+      console.log(messages);
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/chat-stream`,
         {
@@ -1170,6 +1210,15 @@ return (
                       }`}
                       rows={3}
                     />
+                    <label className="cursor-pointer shrink-0 mb-0.5 w-9 h-9 rounded-xl flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white transition">
+                      📎
+                      <input
+                        type="file"
+                        accept=".pdf,.txt"
+                        className="hidden"
+                        onChange={handleFileUpload}
+                      />
+                    </label>
 
                     <div className="flex gap-2">
                       <button
