@@ -1258,9 +1258,9 @@ return (
 
               {/* AI Action Buttons */}
               {msg.sender === "ai" && (
-                <div className="flex gap-1.5 mt-1 px-1">
+                <div className="relative flex gap-1.5 mt-1 px-1">
                   <button
-                    onClick={() => navigator.clipboard.writeText(msg.text)}
+                    onClick={() => handleCopy(msg.text)}
                     className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1 ${
                       darkMode
                         ? "bg-white/[0.06] hover:bg-white/[0.1] text-zinc-400 hover:text-zinc-200"
@@ -1269,7 +1269,7 @@ return (
                   >
                     📋 Copy
                   </button>
-                  {copiedId && (
+                  {copiedId === msg.text && (
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-800 text-white text-xs px-2 py-1 rounded animate-pulse">
                       Copied!
                     </div>
