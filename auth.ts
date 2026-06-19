@@ -9,7 +9,6 @@ export const {
   signOut,
   auth,
 } = NextAuth({
-  debug:true,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -38,4 +37,17 @@ export const {
 
     return true;
   },
+    async session({ session }) {
+      if (!session.user?.email) return session;
+
+      const user = await prisma.user.findUnique({
+        where: { email: session.user.email },
+      });
+
+      if (user) {
+        (session.user as typeof session.user & { id: string }).id = user.id;
+      }
+
+      return session;
+    },
 }});
