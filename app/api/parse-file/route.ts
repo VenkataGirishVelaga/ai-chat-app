@@ -14,13 +14,16 @@ export async function POST(req: NextRequest) {
 
     if (file.type === "application/pdf") {
       const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      const { extractText, getDocumentProxy } = await import("unpdf");
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require("pdf-parse");
-      const data = await pdfParse(buffer);
+      const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
+      const { text } = await extractText(pdf, { mergePages: true });
 
-      return NextResponse.json({ text: `[Resume/PDF Content]\n${data.text}` });
+      if (!text?.trim()) {
+        return NextResponse.json({ error: "Could not extract text. PDF may be scanned/image-based." }, { status: 400 });
+      }
+
+      return NextResponse.json({ text: `[Resume/PDF Content]\n${text}` });
     }
 
     return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
