@@ -446,6 +446,10 @@ useEffect(() => {
         }
       );
 
+      if (!response.ok) {
+        throw new Error(`Chat server returned ${response.status}`);
+      }
+
       if (!response.body) {
         throw new Error("No response stream");
       }
@@ -749,13 +753,17 @@ const saveEditedMessage = async (
       )
     );
 
-    const response = await fetch("process.env.NEXT_PUBLIC_BACKEND_URL/chat-stream", {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat-stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: buildConversationMessages(updatedMessages),
       }),
     });
+
+    if (!response.ok) {
+      throw new Error(`Chat server returned ${response.status}`);
+    }
 
     if (!response.body) throw new Error("No stream");
 
