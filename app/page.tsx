@@ -17,7 +17,6 @@ type DbMessage = {
   sender: "user" | "ai";
   timestamp: string;
   chatId: string;
-  createdAt: string;
 };
 
 type DbChat = {
@@ -50,6 +49,7 @@ export default function Home() {
   const [darkMode, setDarkMode] = useState(true);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [chatLoadError, setChatLoadError] = useState<string | null>(null);
 
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState(1);
@@ -127,10 +127,11 @@ useEffect(() => {
       `/api/chats/user?userId=${session.user.id}`
     );
 
-    const dbChats = await res.json();
-    dbChats[0]?.messages.forEach((msg: any) =>
-      console.log(msg.id, msg.sender, msg.text)
-    );
+    if (!res.ok) {
+      throw new Error(`Unable to load chats (${res.status})`);
+    }
+
+    const dbChats: DbChat[] = await res.json();
     if (dbChats.length === 0) {
       const createRes = await fetch(
         "/api/chats/create",
@@ -166,11 +167,7 @@ useEffect(() => {
         dbId: chat.id,
         title: chat.title,
         pinned: chat.pinned,
-        messages: chat.messages
-          .sort((a: DbMessage, b: DbMessage) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          )
-          .map((msg: DbMessage) => ({
+        messages: chat.messages.map((msg: DbMessage) => ({
             id: msg.id,
             text: msg.text,
             sender: msg.sender,
@@ -183,7 +180,12 @@ useEffect(() => {
     setCurrentChatId(convertedChats[0].id);
   };
 
-  loadChats();
+  loadChats().catch((error) => {
+    console.error("Unable to load chats:", error);
+    setChatLoadError(
+      error instanceof Error ? error.message : "Unable to load chats"
+    );
+  });
 }, [session]);
 
   const currentChat =
@@ -209,6 +211,14 @@ useEffect(() => {
 
   if (!session) {
     return <LoginScreen />;
+  }
+
+  if (chatLoadError) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        {chatLoadError}
+      </div>
+    );
   }
 
   if (!currentChat) {

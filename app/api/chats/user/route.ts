@@ -17,6 +17,9 @@ export async function GET(req: NextRequest) {
       where: {
         userId,
       },
+      include: {
+        messages: true,
+      },
       orderBy: {
         createdAt: "desc",
       },
