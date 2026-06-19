@@ -371,6 +371,9 @@ useEffect(() => {
     // 3. Now do title update and rest of the flow
     const currentMessage = message;
     setMessage("");
+    const shouldGenerateTitle =
+      currentChat?.title.startsWith("Chat ") ||
+      currentChat?.title === "New Chat";
 
     const newTitle =
       currentMessage.length > 20
@@ -515,6 +518,67 @@ useEffect(() => {
         return { ...chat, messages: msgs };
       })
     );
+
+    if (shouldGenerateTitle && currentChat?.dbId) {
+      try {
+        const titleResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/chat`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "Create a concise 3 to 6 word title for this conversation. Return only the title, with no quotes or punctuation at the end.",
+                },
+                {
+                  role: "user",
+                  content: `User: ${currentMessage}\nAssistant: ${fullText}`,
+                },
+              ],
+            }),
+          }
+        );
+
+        if (!titleResponse.ok) {
+          throw new Error(`Title server returned ${titleResponse.status}`);
+        }
+
+        const titleData = await titleResponse.json();
+        const generatedTitle = titleData?.message?.content
+          ?.trim()
+          .replace(/^["']|["']$/g, "")
+          .replace(/\s+/g, " ")
+          .slice(0, 60);
+
+        if (generatedTitle) {
+          setChats((prev) =>
+            prev.map((chat) =>
+              chat.id === currentChatId
+                ? { ...chat, title: generatedTitle }
+                : chat
+            )
+          );
+
+          await fetch("/api/chats/update-title", {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              chatId: currentChat.dbId,
+              title: generatedTitle,
+            }),
+          });
+        }
+      } catch (error) {
+        console.error("Unable to generate chat title:", error);
+      }
+    }
 
     } catch (error) {
       console.error(error);
