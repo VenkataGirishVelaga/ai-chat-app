@@ -67,49 +67,31 @@ export default function Home() {
     setAttachedFileName(file.name);
 
     try {
-      if (file.type === "application/pdf") {
-        const pdfjsLib = await import("pdfjs-dist");
-        
-        // Use exact version URL instead of dynamic version
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      const formData = new FormData();
+      formData.append("file", file);
 
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const res = await fetch("/api/parse-file", {
+        method: "POST",
+        body: formData,
+      });
 
-        let fullText = "";
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          fullText += content.items.map((item: any) => ("str" in item ? item.str : "")).join(" ") + "\n";
-        }
+      const data = await res.json();
 
-        if (!fullText.trim()) {
-          alert("Could not extract text from this PDF. It may be scanned/image-based.");
-          setAttachedFileName(null);
-          return;
-        }
-
-        setAttachedFile(`[Resume/PDF Content]\n${fullText}`);
-
-      } else if (file.type === "text/plain") {
-        const text = await file.text();
-        setAttachedFile(`[File Content]\n${text}`);
-
-      } else {
-        alert("Only PDF and TXT files are supported.");
+      if (!res.ok || data.error) {
+        alert(data.error ?? "Failed to read file.");
         setAttachedFileName(null);
         return;
       }
+
+      setAttachedFile(data.text);
     } catch (err) {
       console.error("File upload error:", err);
       alert("Failed to read file. Please try again.");
       setAttachedFileName(null);
     }
 
-    // Reset so same file can be re-selected
     e.target.value = "";
   };
-
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);
     setCopiedId(text);
