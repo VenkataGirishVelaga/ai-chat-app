@@ -1089,7 +1089,7 @@ export default function Home() {
           <label
             className={`cursor-pointer shrink-0 mb-0.5 w-9 h-9 rounded-xl flex items-center justify-center transition ${
               attachedFile
-                ? "bg-green-600 text-white"
+                ? "text-white"
                 : darkMode
                 ? "bg-white/[0.06] hover:bg-white/[0.1] text-zinc-400"
                 : "bg-gray-100 hover:bg-gray-200 text-gray-500"
