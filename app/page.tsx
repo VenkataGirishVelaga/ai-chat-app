@@ -66,27 +66,47 @@ export default function Home() {
 
     setAttachedFileName(file.name);
 
-    if (file.type === "application/pdf") {
-      const pdfjsLib = await import("pdfjs-dist");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    try {
+      if (file.type === "application/pdf") {
+        const pdfjsLib = await import("pdfjs-dist");
+        
+        // Use exact version URL instead of dynamic version
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-      let fullText = "";
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        fullText += content.items.map((item: any) => item.str).join(" ") + "\n";
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          fullText += content.items.map((item: any) => ("str" in item ? item.str : "")).join(" ") + "\n";
+        }
+
+        if (!fullText.trim()) {
+          alert("Could not extract text from this PDF. It may be scanned/image-based.");
+          setAttachedFileName(null);
+          return;
+        }
+
+        setAttachedFile(`[Resume/PDF Content]\n${fullText}`);
+
+      } else if (file.type === "text/plain") {
+        const text = await file.text();
+        setAttachedFile(`[File Content]\n${text}`);
+
+      } else {
+        alert("Only PDF and TXT files are supported.");
+        setAttachedFileName(null);
+        return;
       }
-
-      setAttachedFile(`[Resume/PDF Content]\n${fullText}`);
-    } else if (file.type === "text/plain") {
-      const text = await file.text();
-      setAttachedFile(`[File Content]\n${text}`);
+    } catch (err) {
+      console.error("File upload error:", err);
+      alert("Failed to read file. Please try again.");
+      setAttachedFileName(null);
     }
 
-    // Reset input so same file can be re-uploaded
+    // Reset so same file can be re-selected
     e.target.value = "";
   };
 
