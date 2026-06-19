@@ -8,34 +8,28 @@ datasource db {
 }
 
 model User {
-  id        String @id
-  email     String @unique
-  name      String?
-  image     String?
-
-  chats     Chat[]
+  id    String  @id
+  email String  @unique
+  name  String?
+  image String?
+  chats Chat[]
 }
 
 model Chat {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   title     String
-
-  pinned    Boolean  @default(false)
-
-  createdAt DateTime @default(now())
-
+  createdAt DateTime  @default(now())
   userId    String
-  user      User @relation(fields: [userId], references: [id])
-
+  pinned    Boolean   @default(false)
+  user      User      @relation(fields: [userId], references: [id])
   messages  Message[]
 }
 
 model Message {
-  id        String   @id @default(cuid())
+  id        String @id @default(cuid())
   text      String
   sender    String
   timestamp String
   chatId    String
-  chat      Chat     @relation(fields: [chatId], references: [id])
-  createdAt DateTime @default(now())   
+  chat      Chat   @relation(fields: [chatId], references: [id])
 }

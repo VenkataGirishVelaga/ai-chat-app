@@ -9,6 +9,7 @@ export const {
   signOut,
   auth,
 } = NextAuth({
+  debug:true,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -17,45 +18,24 @@ export const {
   ],
 
   callbacks: {
-    
     async signIn({ user }) {
-        if (!user.email) return false;
+    if (!user.email) return false;
 
-        const existingUser =
-        await prisma.user.findUnique({
-            where: { email: user.email },
-        });
+    const existingUser = await prisma.user.findUnique({
+      where: { email: user.email },
+    });
 
-        if (!existingUser) {
-        await prisma.user.create({
-            data: {
-            id: crypto.randomUUID(),
-            email: user.email,
-            name: user.name,
-            image: user.image,
-            },
-        });
-        }
-
-        return true;
-    },
-
-    async session({ session }) {
-        if (!session.user?.email) {
-        return session;
-        }
-
-        const user = await prisma.user.findUnique({
-        where: {
-            email: session.user.email,
+    if (!existingUser) {
+      await prisma.user.create({
+        data: {
+          id: crypto.randomUUID(),
+          email: user.email,
+          name: user.name,
+          image: user.image,
         },
-        });
+      });
+    }
 
-        if (user) {
-        (session.user as any).id = user.id;
-        }
-
-        return session;
-    },
-}
-});
+    return true;
+  },
+}});

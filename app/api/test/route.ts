@@ -1,8 +1,19 @@
-import { NextResponse } from "next/server";
+// app/api/test/route.ts
+
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
-  const users = await prisma.user.findMany();
+  try {
+    const count = await prisma.user.count();
 
-  return NextResponse.json(users);
+    return Response.json({
+      success: true,
+      count,
+    });
+  } catch (e: any) {
+    return Response.json({
+      success: false,
+      error: e.message,
+    });
+  }
 }
