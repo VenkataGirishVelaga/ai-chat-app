@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      // Dynamically import pdf-parse (server only)
-      const pdfParse = (await import("pdf-parse")).default;
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require("pdf-parse");
       const data = await pdfParse(buffer);
 
       return NextResponse.json({ text: `[Resume/PDF Content]\n${data.text}` });
