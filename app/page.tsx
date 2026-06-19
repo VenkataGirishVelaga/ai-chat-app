@@ -60,7 +60,16 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const { data: session, status} = useSession();
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const handleCopy = async (text: string) => {
+    await navigator.clipboard.writeText(text);
 
+    setCopiedId(text);
+
+    setTimeout(() => {
+      setCopiedId(null);
+    }, 1500);
+  };
   console.log(session?.user);
   const togglePinChat = async (
     chatId: number
@@ -1260,6 +1269,11 @@ return (
                   >
                     📋 Copy
                   </button>
+                  {copiedId && (
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-800 text-white text-xs px-2 py-1 rounded animate-pulse">
+                      Copied!
+                    </div>
+                  )}
                   <button
                     onClick={() => regenerateResponse(index)}
                     className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1 ${
