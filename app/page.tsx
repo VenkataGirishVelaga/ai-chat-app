@@ -92,6 +92,7 @@ export default function Home() {
 
     e.target.value = "";
   };
+
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);
     setCopiedId(text);
@@ -271,7 +272,14 @@ export default function Home() {
   const handleSend = async () => {
     if (!message.trim() && !attachedFile) return;
 
-    // Combine file content + user message
+    // ✅ FIX 1: Capture stable references before any async work
+    const activeChatId = currentChatId;
+    const activeChat = chats.find((c) => c.id === activeChatId);
+    if (!activeChat) return;
+
+    // Snapshot messages before any state mutations
+    const snapshotMessages = activeChat.messages;
+
     const fullMessage = attachedFile
       ? `${attachedFile}\n\nUser question: ${message}`
       : message;
@@ -288,7 +296,7 @@ export default function Home() {
     let userMsgIndex = 0;
     setChats((prev) =>
       prev.map((chat) => {
-        if (chat.id !== currentChatId) return chat;
+        if (chat.id !== activeChatId) return chat;
         userMsgIndex = chat.messages.length;
         return { ...chat, messages: [...chat.messages, userMessage] };
       })
@@ -301,25 +309,24 @@ export default function Home() {
         text: userMessage.text,
         sender: userMessage.sender,
         timestamp: userMessage.timestamp,
-        chatId: currentChat?.dbId,
+        chatId: activeChat?.dbId,
       }),
     }).then((r) => r.json());
 
     setChats((prev) =>
       prev.map((chat) => {
-        if (chat.id !== currentChatId) return chat;
+        if (chat.id !== activeChatId) return chat;
         const msgs = [...chat.messages];
         msgs[userMsgIndex] = { ...msgs[userMsgIndex], id: savedUserMsg.id };
         return { ...chat, messages: msgs };
       })
     );
 
-    // Use fullMessage for title + conversation (not the bare `message`)
     const currentMessage = fullMessage;
     setMessage("");
 
     const shouldGenerateTitle =
-      currentChat?.title.startsWith("Chat ") || currentChat?.title === "New Chat";
+      activeChat?.title.startsWith("Chat ") || activeChat?.title === "New Chat";
 
     const newTitle =
       message.length > 20 ? message.slice(0, 20) + "..." : message || "File upload";
@@ -327,7 +334,7 @@ export default function Home() {
     setChats((prev) =>
       prev.map((chat) => {
         if (
-          chat.id === currentChatId &&
+          chat.id === activeChatId &&
           (chat.title.startsWith("Chat ") || chat.title === "New Chat")
         ) {
           return { ...chat, title: newTitle };
@@ -337,13 +344,13 @@ export default function Home() {
     );
 
     if (
-      currentChat?.dbId &&
-      (currentChat.title.startsWith("Chat ") || currentChat.title === "New Chat")
+      activeChat?.dbId &&
+      (activeChat.title.startsWith("Chat ") || activeChat.title === "New Chat")
     ) {
       await fetch("/api/chats/update-title", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatId: currentChat.dbId, title: newTitle }),
+        body: JSON.stringify({ chatId: activeChat.dbId, title: newTitle }),
       });
     }
 
@@ -355,16 +362,21 @@ export default function Home() {
         minute: "2-digit",
       });
 
-      updateCurrentChatMessages((prev) => [
-        ...prev,
-        { text: "", sender: "ai", timestamp: aiTimestamp },
-      ]);
+      // Add empty AI message placeholder
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.id !== activeChatId
+            ? chat
+            : { ...chat, messages: [...chat.messages, { text: "", sender: "ai", timestamp: aiTimestamp }] }
+        )
+      );
 
+      // ✅ FIX 2: Use snapshotMessages so conversation history is correct
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat-stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: buildConversationMessages(currentChat.messages, currentMessage),
+          messages: buildConversationMessages(snapshotMessages, currentMessage),
         }),
       });
 
@@ -379,11 +391,12 @@ export default function Home() {
         const { done, value } = await reader.read();
         if (done) break;
 
-        fullText += decoder.decode(value);
+        fullText += decoder.decode(value, { stream: true });
 
+        // ✅ FIX 3: Use activeChatId (not currentChatId) — stable closure
         setChats((prev) =>
           prev.map((chat) => {
-            if (chat.id !== currentChatId) return chat;
+            if (chat.id !== activeChatId) return chat;
             const updatedMessages = [...chat.messages];
             updatedMessages[updatedMessages.length - 1] = {
               ...updatedMessages[updatedMessages.length - 1],
@@ -394,6 +407,9 @@ export default function Home() {
         );
       }
 
+      // Flush any remaining bytes
+      fullText += decoder.decode();
+
       const savedAiMsg = await fetch("/api/messages/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -401,20 +417,20 @@ export default function Home() {
           text: fullText,
           sender: "ai",
           timestamp: aiTimestamp,
-          chatId: currentChat?.dbId,
+          chatId: activeChat?.dbId,
         }),
       }).then((r) => r.json());
 
       setChats((prev) =>
         prev.map((chat) => {
-          if (chat.id !== currentChatId) return chat;
+          if (chat.id !== activeChatId) return chat;
           const msgs = [...chat.messages];
           msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], id: savedAiMsg.id };
           return { ...chat, messages: msgs };
         })
       );
 
-      if (shouldGenerateTitle && currentChat?.dbId) {
+      if (shouldGenerateTitle && activeChat?.dbId) {
         try {
           const titleResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/chat`, {
             method: "POST",
@@ -446,14 +462,14 @@ export default function Home() {
           if (generatedTitle) {
             setChats((prev) =>
               prev.map((chat) =>
-                chat.id === currentChatId ? { ...chat, title: generatedTitle } : chat
+                chat.id === activeChatId ? { ...chat, title: generatedTitle } : chat
               )
             );
 
             await fetch("/api/chats/update-title", {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ chatId: currentChat.dbId, title: generatedTitle }),
+              body: JSON.stringify({ chatId: activeChat.dbId, title: generatedTitle }),
             });
           }
         } catch (error) {
@@ -462,14 +478,23 @@ export default function Home() {
       }
     } catch (error) {
       console.error(error);
-      updateCurrentChatMessages((prev) => [
-        ...prev,
-        {
-          text: "⚠️ Failed to connect to server.",
-          sender: "ai",
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.id !== activeChatId
+            ? chat
+            : {
+                ...chat,
+                messages: [
+                  ...chat.messages,
+                  {
+                    text: "⚠️ Failed to connect to server.",
+                    sender: "ai" as const,
+                    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                  },
+                ],
+              }
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -478,6 +503,9 @@ export default function Home() {
   const regenerateResponse = async (aiMessageIndex: number) => {
     const userMessage = currentChat.messages[aiMessageIndex - 1];
     if (!userMessage) return;
+
+    const activeChatId = currentChatId;
+    const activeChat = chats.find((c) => c.id === activeChatId);
 
     try {
       setLoading(true);
@@ -495,7 +523,6 @@ export default function Home() {
       const data = await response.json();
       const newAiText = data.success ? data.message.content : "Something went wrong.";
 
-      const activeChat = chats.find((chat) => chat.id === currentChatId);
       const aiMessage = activeChat?.messages[aiMessageIndex];
 
       if (aiMessage?.id) {
@@ -529,7 +556,7 @@ export default function Home() {
 
       setChats((prev) =>
         prev.map((chat) => {
-          if (chat.id !== currentChatId) return chat;
+          if (chat.id !== activeChatId) return chat;
           const updatedMessages = [...chat.messages];
           updatedMessages[aiMessageIndex] = {
             ...updatedMessages[aiMessageIndex],
@@ -548,6 +575,10 @@ export default function Home() {
   };
 
   const saveEditedMessage = async (messageId: string, index: number) => {
+    const activeChatId = currentChatId;
+    const activeChat = chats.find((c) => c.id === activeChatId);
+    if (!activeChat) return;
+
     try {
       setLoading(true);
 
@@ -557,8 +588,8 @@ export default function Home() {
         body: JSON.stringify({ messageId, text: editedText }),
       });
 
-      const updatedMessages = currentChat.messages.slice(0, index + 1);
-      const messagesToDelete = currentChat.messages
+      const updatedMessages = activeChat.messages.slice(0, index + 1);
+      const messagesToDelete = activeChat.messages
         .slice(index + 1)
         .filter((m) => m.id)
         .map((m) => m.id);
@@ -575,7 +606,7 @@ export default function Home() {
 
       setChats((prev) =>
         prev.map((chat) =>
-          chat.id === currentChatId ? { ...chat, messages: updatedMessages } : chat
+          chat.id === activeChatId ? { ...chat, messages: updatedMessages } : chat
         )
       );
 
@@ -588,7 +619,7 @@ export default function Home() {
 
       setChats((prev) =>
         prev.map((chat) =>
-          chat.id === currentChatId
+          chat.id === activeChatId
             ? {
                 ...chat,
                 messages: [
@@ -616,17 +647,19 @@ export default function Home() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        fullText += decoder.decode(value);
+        fullText += decoder.decode(value, { stream: true });
 
         setChats((prev) =>
           prev.map((chat) => {
-            if (chat.id !== currentChatId) return chat;
+            if (chat.id !== activeChatId) return chat;
             const msgs = [...chat.messages];
             msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], text: fullText };
             return { ...chat, messages: msgs };
           })
         );
       }
+
+      fullText += decoder.decode();
 
       const createAiRes = await fetch("/api/messages/create", {
         method: "POST",
@@ -635,7 +668,7 @@ export default function Home() {
           text: fullText,
           sender: "ai",
           timestamp: aiTimestamp,
-          chatId: currentChat.dbId,
+          chatId: activeChat.dbId,
         }),
       });
 
@@ -643,7 +676,7 @@ export default function Home() {
 
       setChats((prev) =>
         prev.map((chat) => {
-          if (chat.id !== currentChatId) return chat;
+          if (chat.id !== activeChatId) return chat;
           const msgs = [...chat.messages];
           msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], id: savedAiMessage.id };
           return { ...chat, messages: msgs };
@@ -950,6 +983,13 @@ export default function Home() {
                         </button>
                       </div>
                     </div>
+                  ) : msg.sender === "ai" && msg.text === "" ? (
+                    // Loading indicator while streaming
+                    <div className="flex items-center gap-1.5 py-1">
+                      <span className={`w-1.5 h-1.5 rounded-full animate-bounce ${darkMode ? "bg-zinc-400" : "bg-gray-400"}`} style={{ animationDelay: "0ms" }} />
+                      <span className={`w-1.5 h-1.5 rounded-full animate-bounce ${darkMode ? "bg-zinc-400" : "bg-gray-400"}`} style={{ animationDelay: "150ms" }} />
+                      <span className={`w-1.5 h-1.5 rounded-full animate-bounce ${darkMode ? "bg-zinc-400" : "bg-gray-400"}`} style={{ animationDelay: "300ms" }} />
+                    </div>
                   ) : (
                     <ReactMarkdown
                       components={{
@@ -1006,7 +1046,7 @@ export default function Home() {
                 )}
 
                 {/* AI Action Buttons */}
-                {msg.sender === "ai" && (
+                {msg.sender === "ai" && msg.text !== "" && (
                   <div className="relative flex gap-1.5 mt-1 px-1">
                     <button
                       onClick={() => handleCopy(msg.text)}
@@ -1135,19 +1175,26 @@ export default function Home() {
                 : "bg-blue-600 hover:bg-blue-700 shadow-[0_4px_12px_rgba(59,130,246,0.4)]"
             }`}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-4 h-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
+            {loading ? (
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            )}
           </button>
         </div>
 
